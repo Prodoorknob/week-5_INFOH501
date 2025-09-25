@@ -67,49 +67,87 @@ def _df() -> pd.DataFrame:
 # -------- Visualizations referenced by app.py --------
 def visualize_demographic():
     """
-    Visualization 1:
-    Survival rate by Sex and Pclass with Age distribution context.
-    Returns a Plotly figure suitable for st.plotly_chart(...)
+    Visualization 1 (polished):
+    Survival % by Sex, Class, and Age Band.
+    - Clear x/y axis titles across all facets
+    - Human-friendly facet labels ("Class", "Age band")
+    - Slightly larger fonts and tighter layout
     """
     df = _df().copy()
 
-    # Bin ages to make the faceting/bar more legible when many nulls exist
+    # Age bands for faceting
     age_bins = [0, 12, 18, 30, 45, 60, 80]
     df["AgeBand"] = pd.cut(df["Age"], bins=age_bins, include_lowest=True)
 
-    # Use bar with percentage (normalized count) of Survived within groups
-    # If Survived is missing in a mirror, fallback gracefully
+    common_kwargs = dict(
+        labels={
+            "Sex": "Sex",
+            "Pclass": "Class",
+            "AgeBand": "Age band",
+            "Survived": "Survived",
+        },
+        category_orders={
+            "Sex": ["male", "female"],
+            "Survived": [0, 1],
+            "Pclass": [3, 1, 2],  # display as Class 3, Class 1, Class 2 (matches screenshot order)
+        },
+    )
+
     if "Survived" in df.columns:
         fig = px.histogram(
             df,
             x="Sex",
             color="Survived",
-            barmode="group",
             facet_col="Pclass",
             facet_row="AgeBand",
-            category_orders={"Sex": ["male", "female"], "Survived": [0, 1]},
-            text_auto=True,
-            barnorm="percent",
+            barmode="group",
+            barnorm="percent",  # y-axis shows % within each facet/bin
+            **common_kwargs,
         )
-        fig.update_layout(
-            title="Survival % by Sex, Pclass, and Age Band",
-            legend_title_text="Survived",
-        )
+        # Keep the figure cleaner: rely on hover for % values
+        fig.update_traces(text=None, hovertemplate="%{x}<br>%{customdata}%")
+        fig.update_layout(legend_title_text="Survived")
     else:
-        # Fallback: show population distribution if Survived not present
         fig = px.histogram(
             df,
             x="Sex",
             color="Pclass",
-            barmode="group",
             facet_row="AgeBand",
-            text_auto=True,
+            barmode="group",
+            **common_kwargs,
         )
-        fig.update_layout(title="Passenger Distribution by Sex, Pclass, and Age Band")
+        fig.update_layout(legend_title_text="Class")
 
-    fig.for_each_annotation(lambda a: a.update(text=a.text.replace("Pclass=", "Class ")))
-    fig.update_yaxes(title="Percent of group")
-    fig.update_xaxes(title="")
+    # ---- Global layout & axis polish ----
+    fig.update_layout(
+        title=dict(
+            text="Survival % by Sex, Class, and Age Band",
+            x=0.02, xanchor="left",
+        ),
+        bargap=0.15,
+        font=dict(size=13),
+        margin=dict(t=60, r=40, b=40, l=60),
+    )
+
+    # Clear, consistent axes across all facets
+    fig.update_xaxes(title_text="Sex", tickangle=0, showgrid=False)
+    fig.update_yaxes(
+        title_text="Share of passengers (%)",
+        ticksuffix="%",
+        rangemode="tozero",
+        showgrid=True,
+        gridcolor="rgba(255,255,255,0.08)",
+    )
+
+    # Friendlier facet labels
+    fig.for_each_annotation(
+        lambda a: a.update(
+            text=a.text
+                .replace("Pclass=", "Class ")
+                .replace("AgeBand=", "Age band: ")
+        )
+    )
+
     return fig
 
 
