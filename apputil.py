@@ -1,247 +1,303 @@
-import plotly.express as px
-import pandas as pd
-
-# update/add code below ...
-# apputil.py
-import pathlib
 import pandas as pd
 import plotly.express as px
 
-# -------- Data loading helpers --------
-def _load_titanic() -> pd.DataFrame:
+# =============================================================================
+# Exercise 1: Survival Patterns
+# =============================================================================
+
+def survival_demographics(df):
     """
-    Load Titanic training data.
-    Priority:
-      1) ./train.csv (downloaded from Kaggle competition)
-      2) Fallback to a public mirror if local file not found
+    Analyzes survival patterns by classifying passengers into age groups
+    and calculating survival rates for each combination of class, sex,
+    and age group.
+
+    Returns:
+        pd.DataFrame: A table with survival statistics.
     """
-    local = pathlib.Path("train.csv")
-    if local.exists():
-        df = pd.read_csv(local)
-    else:
-        # Fallback mirror to keep the app working out-of-the-box
-        df = pd.read_csv(
-            "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-        )
+    # Define age bins and labels for categorization
+    bins = [0, 12, 19, 59, df['Age'].max()]
+    labels = ['Child (0-12)', 'Teen (13-19)', 'Adult (20-59)', 'Senior (60+)']
+    
+    # Create the 'age_group' column
+    df['age_group'] = pd.cut(df['Age'], bins=bins, labels=labels, right=True)
 
-    # Standardize expected columns
-    # Some mirrors use slightly different casing; align to Kaggle's schema.
-    rename_map = {
-        "survived": "Survived",
-        "pclass": "Pclass",
-        "sex": "Sex",
-        "age": "Age",
-        "sibsp": "SibSp",
-        "parch": "Parch",
-        "fare": "Fare",
-        "embarked": "Embarked",
-        "name": "Name",
-        "ticket": "Ticket",
-        "cabin": "Cabin",
-        "passengerid": "PassengerId",
-    }
-    df = df.rename(columns=rename_map)
+    # Group by class, sex, and age group to calculate statistics
+    demographics_df = df.groupby(['Pclass', 'Sex', 'age_group'], observed=True).agg(
+        n_passengers=('PassengerId', 'count'),
+        n_survivors=('Survived', 'sum')
+    ).reset_index()
 
-    # Create engineered columns often used in exercises
-    df["FamilySize"] = df[["SibSp", "Parch"]].sum(axis=1) + 1  # include self
-    df["Alone"] = (df["FamilySize"] == 1).map({True: "Alone", False: "With family"})
+    # Calculate the survival rate for each group
+    demographics_df['survival_rate'] = demographics_df['n_survivors'] / demographics_df['n_passengers']
 
-    # Clean basic types
-    if "Pclass" in df.columns:
-        df["Pclass"] = df["Pclass"].astype("Int64")
-    if "Survived" in df.columns:
-        df["Survived"] = df["Survived"].astype("Int64")
+    # Sort the results for better readability
+    demographics_df = demographics_df.sort_values(by=['Pclass', 'Sex', 'age_group'])
 
+    return demographics_df
+
+def visualize_demographic(df):
+    """
+    Creates a Plotly bar chart to visualize survival rates by class, sex,
+    and age group.
+
+    Returns:
+        plotly.graph_objects.Figure: The generated Plotly figure.
+    """
+    # Get the processed data from the analysis function
+    survival_data = survival_demographics(df)
+
+    # Create the figure
+    fig = px.bar(
+        survival_data,
+        x='Pclass',
+        y='survival_rate',
+        color='age_group',
+        facet_col='Sex',
+        title='Survival Rate by Class, Sex, and Age Group',
+        labels={
+            'Pclass': 'Passenger Class',
+            'survival_rate': 'Survival Rate',
+            'age_group': 'Age Group'
+        },
+        category_orders={"Pclass": [1, 2, 3], "Sex": ["female", "male"]}
+    )
+    # Standardize the y-axis for rates (0 to 1)
+    fig.update_yaxes(range=[0, 1])
+    return fig
+
+# =============================================================================
+# NEW: Alternative Visualization Functions
+# =============================================================================
+
+### 1. Sunburst Chart
+def visualize_sunburst(df):
+    """
+    Creates a sunburst chart to visualize the hierarchy of passenger demographics
+    and their corresponding survival rates.
+    """
+    # Get the processed demographic data
+    survival_data = survival_demographics(df)
+    
+    # Ensure all data in the path is a string for Plotly
+    survival_data['Pclass'] = 'Class ' + survival_data['Pclass'].astype(str)
+
+    # Create the sunburst chart
+    fig = px.sunburst(
+        survival_data,
+        path=['Pclass', 'Sex', 'age_group'], # Defines the hierarchy of rings
+        values='n_passengers',                # Size of segments based on number of passengers
+        color='survival_rate',                # Color of segments based on survival rate
+        color_continuous_scale='viridis',     # A pleasant color scale
+        range_color=[0,1],                    # Standardize color scale from 0 to 1
+        title='Titanic Survival by Demographic Hierarchy',
+        hover_data={'survival_rate': ':.2f'}  # Format hover data
+    )
+    fig.update_layout(margin=dict(t=50, l=25, r=25, b=25))
+    return fig
+
+### 2. Treemap
+def visualize_treemap(df):
+    """
+    Creates a treemap to visualize passenger demographics, where rectangle size
+    indicates group size and color indicates survival rate.
+    """
+    # Get the processed demographic data
+    survival_data = survival_demographics(df)
+
+    # Ensure all data in the path is a string for Plotly
+    survival_data['Pclass'] = 'Class ' + survival_data['Pclass'].astype(str)
+
+    # Create the treemap
+    fig = px.treemap(
+        survival_data,
+        path=[px.Constant("All Passengers"), 'Pclass', 'Sex', 'age_group'], # Defines the hierarchy
+        values='n_passengers',                  # Size of rectangles based on passenger count
+        color='survival_rate',                  # Color of rectangles based on survival rate
+        color_continuous_scale='Reds',          # Use a red color scale for intensity
+        range_color=[0,1],                      # Standardize color scale
+        title='Titanic Survival by Demographic Group Size',
+        hover_data={'survival_rate': ':.2f'}    # Format hover data
+    )
+    fig.update_layout(margin=dict(t=50, l=25, r=25, b=25))
+    return fig
+
+### 3. Heatmap
+def visualize_heatmap(df):
+    """
+    Creates a heatmap to show survival rates across passenger class and
+    other demographic groups.
+    """
+    # Get the processed demographic data
+    survival_data = survival_demographics(df)
+    
+    # Combine Sex and Age Group for one of the axes
+    survival_data['Demographic'] = survival_data['Sex'] + ' (' + survival_data['age_group'].astype(str) + ')'
+    
+    # Pivot the data to create a matrix suitable for a heatmap
+    heatmap_data = survival_data.pivot_table(
+        index='Pclass', 
+        columns='Demographic', 
+        values='survival_rate'
+    )
+
+    # Create the heatmap
+    fig = px.imshow(
+        heatmap_data,
+        text_auto=".2f", # Display the survival rate on each cell, formatted to 2 decimal places
+        aspect="auto",
+        color_continuous_scale='RdYlGn', # Red-Yellow-Green scale is intuitive for rates
+        range_color=[0,1],
+        title='Heatmap of Survival Rates by Class and Demographic'
+    )
+    fig.update_xaxes(title_text='Demographic Group')
+    fig.update_yaxes(title_text='Passenger Class')
+    return fig
+# =============================================================================
+# Exercise 2: Family Size and Wealth
+# =============================================================================
+
+def family_groups(df):
+    """
+    Analyzes the relationship between family size, passenger class, and ticket fare.
+
+    Returns:
+        pd.DataFrame: A table with statistics on family size and fares.
+    """
+    # Create 'family_size' column (SibSp + Parch + self)
+    df['family_size'] = df['SibSp'] + df['Parch'] + 1
+
+    # Group by class and family size to calculate fare statistics
+    family_df = df.groupby(['Pclass', 'family_size']).agg(
+        n_passengers=('PassengerId', 'count'),
+        avg_fare=('Fare', 'mean'),
+        min_fare=('Fare', 'min'),
+        max_fare=('Fare', 'max')
+    ).reset_index()
+
+    # Sort the results for better readability
+    family_df = family_df.sort_values(by=['Pclass', 'family_size'])
+
+    return family_df
+
+def last_names(df):
+    """
+    Extracts the last name of each passenger and returns the count for each name.
+
+    Returns:
+        pd.Series: A series with last names as the index and their counts as values.
+    """
+    last_names_series = df['Name'].apply(lambda name: name.split(',')[0])
+    return last_names_series.value_counts()
+
+def visualize_families(df):
+    """
+    Creates a Plotly scatter plot to visualize the relationship between family
+    size, wealth (fare), and passenger class.
+
+    Returns:
+        plotly.graph_objects.Figure: The generated Plotly figure.
+    """
+    # Get the processed data
+    family_data = family_groups(df)
+
+    # Create the scatter plot, with bubble size representing passenger count
+    fig = px.scatter(
+        family_data,
+        x='family_size',
+        y='avg_fare',
+        color='Pclass',
+        size='n_passengers',
+        hover_name='Pclass',
+        hover_data=['min_fare', 'max_fare'],
+        title='Average Fare vs. Family Size by Passenger Class',
+        labels={
+            'family_size': 'Family Size (including self)',
+            'avg_fare': 'Average Ticket Fare ($)',
+            'n_passengers': 'Number of Passengers',
+            'Pclass': 'Passenger Class'
+        },
+        category_orders={"Pclass": [1, 2, 3]}
+    )
+    return fig
+
+def visualize_families_line(df):
+    """
+    Creates a faceted line plot to show the trend of average fare by
+    family size for each passenger class.
+    """
+    # Get the processed data
+    family_data = family_groups(df)
+
+    # Create the faceted line plot
+    fig = px.line(
+        family_data,
+        x='family_size',
+        y='avg_fare',
+        facet_col='Pclass',  # Creates a separate plot for each class
+        markers=True,        # Adds dots on each data point
+        title='Average Fare Trend by Family Size for Each Passenger Class',
+        labels={
+            'family_size': 'Family Size',
+            'avg_fare': 'Average Ticket Fare ($)',
+            'Pclass': 'Passenger Class'
+        }
+    )
+    # This ensures each subplot can have its own y-axis range, which is better for trends
+    fig.update_yaxes(matches=None)
+    return fig
+
+# =============================================================================
+# Bonus Question
+# =============================================================================
+
+def determine_age_division(df):
+    """
+    Adds a boolean column 'older_passenger' that indicates if a passenger's
+    age is above the median age for their specific passenger class.
+
+    Returns:
+        pd.DataFrame: The DataFrame with the new 'older_passenger' column.
+    """
+    # Use transform to get the median age for each passenger's class
+    median_ages = df.groupby('Pclass')['Age'].transform('median')
+    
+    # Create the boolean column
+    df['older_passenger'] = df['Age'] > median_ages
     return df
 
-
-# Cache in module scope so multiple figures reuse the same frame
-_DF = None
-def _df() -> pd.DataFrame:
-    global _DF
-    if _DF is None:
-        _DF = _load_titanic()
-    return _DF
-
-
-# -------- Visualizations referenced by app.py --------
-def visualize_demographic():
+def visualize_family_size(df): # Note: Named to match the original app.py
     """
-    Visualization 1 (polished):
-    Survival % by Sex, Class, and Age Band.
-    - Clear x/y axis titles across all facets
-    - Human-friendly facet labels ("Class", "Age band")
-    - Slightly larger fonts and tighter layout
+    Visualizes survival rates based on whether a passenger's age is above
+    or below the median for their class.
+
+    Returns:
+        plotly.graph_objects.Figure: The generated Plotly figure.
     """
-    df = _df().copy()
+    # Get the processed data using a copy to avoid modifying the original df
+    age_data = determine_age_division(df.copy())
 
-    # Age bands for faceting
-    age_bins = [0, 12, 18, 30, 45, 60, 80]
-    df["AgeBand"] = pd.cut(df["Age"], bins=age_bins, include_lowest=True)
+    # Calculate survival rates for the new groups
+    bonus_df = age_data.groupby(['Pclass', 'older_passenger'])['Survived'].mean().reset_index()
+    bonus_df['older_passenger'] = bonus_df['older_passenger'].map({
+        True: 'Above Median Age',
+        False: 'Below/At Median Age'
+    })
 
-    common_kwargs = dict(
+    # Create a grouped bar chart for comparison
+    fig = px.bar(
+        bonus_df,
+        x='Pclass',
+        y='Survived',
+        color='older_passenger',
+        barmode='group',
+        title='Survival Rate by Class and Age Relative to Class Median',
         labels={
-            "Sex": "Sex",
-            "Pclass": "Class",
-            "AgeBand": "Age band",
-            "Survived": "Survived",
+            'Pclass': 'Passenger Class',
+            'Survived': 'Survival Rate',
+            'older_passenger': 'Age vs. Class Median'
         },
-        category_orders={
-            "Sex": ["male", "female"],
-            "Survived": [0, 1],
-            "Pclass": [3, 1, 2],  # display as Class 3, Class 1, Class 2 (matches screenshot order)
-        },
+        category_orders={"Pclass": [1, 2, 3]}
     )
-
-    if "Survived" in df.columns:
-        fig = px.histogram(
-            df,
-            x="Sex",
-            color="Survived",
-            facet_col="Pclass",
-            facet_row="AgeBand",
-            barmode="group",
-            barnorm="percent",  # y-axis shows % within each facet/bin
-            **common_kwargs,
-        )
-        # Keep the figure cleaner: rely on hover for % values
-        fig.update_traces(text=None, hovertemplate="%{x}<br>%{customdata}%")
-        fig.update_layout(legend_title_text="Survived")
-    else:
-        fig = px.histogram(
-            df,
-            x="Sex",
-            color="Pclass",
-            facet_row="AgeBand",
-            barmode="group",
-            **common_kwargs,
-        )
-        fig.update_layout(legend_title_text="Class")
-
-    # ---- Global layout & axis polish ----
-    fig.update_layout(
-        title=dict(
-            text="Survival % by Sex, Class, and Age Band",
-            x=0.02, xanchor="left",
-        ),
-        bargap=0.15,
-        font=dict(size=13),
-        margin=dict(t=60, r=40, b=40, l=60),
-    )
-
-    # Clear, consistent axes across all facets
-    fig.update_xaxes(title_text="Sex", tickangle=0, showgrid=False)
-    fig.update_yaxes(
-        title_text="Share of passengers (%)",
-        ticksuffix="%",
-        rangemode="tozero",
-        showgrid=True,
-        gridcolor="rgba(255,255,255,0.08)",
-    )
-
-    # Friendlier facet labels
-    fig.for_each_annotation(
-        lambda a: a.update(
-            text=a.text
-                .replace("Pclass=", "Class ")
-                .replace("AgeBand=", "Age band: ")
-        )
-    )
-
-    return fig
-
-
-def visualize_families():
-    """
-    Visualization 2:
-    Family structure vs survival:
-      - x = FamilySize (clipped to keep chart readable)
-      - color = Alone vs With family
-      - facet by Embarked (if available)
-    """
-    df = _df().copy()
-    df["FamilySizeClipped"] = df["FamilySize"].clip(upper=7)
-
-    if "Survived" in df.columns:
-        # Compute survival rate by family size & alone/with family
-        grp = (
-            df.dropna(subset=["FamilySizeClipped"])
-              .groupby(["FamilySizeClipped", "Alone"], as_index=False)["Survived"]
-              .mean()
-              .rename(columns={"Survived": "SurvivalRate"})
-        )
-        fig = px.line(
-            grp,
-            x="FamilySizeClipped",
-            y="SurvivalRate",
-            color="Alone",
-            markers=True,
-        )
-        fig.update_layout(
-            title="Survival Rate vs Family Size",
-            yaxis_tickformat=".0%",
-        )
-        fig.update_xaxes(title="Family Size (clipped at 7)")
-        fig.update_yaxes(title="Survival Rate")
-    else:
-        # Fallback: show distribution by family size
-        fig = px.histogram(
-            df,
-            x="FamilySizeClipped",
-            color="Alone",
-            barmode="group",
-            text_auto=True,
-        )
-        fig.update_layout(title="Passenger Count by Family Size and Alone/With Family")
-        fig.update_xaxes(title="Family Size (clipped at 7)")
-        fig.update_yaxes(title="Passenger Count")
-
-    return fig
-
-
-def visualize_family_size():
-    """
-    Bonus Visualization:
-    Survival by discrete buckets of FamilySize with Fare as a secondary cue.
-    """
-    df = _df().copy()
-    df["FamilyBucket"] = pd.cut(
-        df["FamilySize"],
-        bins=[0, 1, 2, 4, 7, 11],
-        labels=["1", "2", "3-4", "5-7", "8-11"],
-        include_lowest=True,
-    )
-
-    if "Survived" in df.columns:
-        grp = (
-            df.dropna(subset=["FamilyBucket"])
-              .groupby(["FamilyBucket"], as_index=False)["Survived"].mean()
-              .rename(columns={"Survived": "SurvivalRate"})
-        )
-        fig = px.bar(
-            grp,
-            x="FamilyBucket",
-            y="SurvivalRate",
-            text="SurvivalRate",
-        )
-        fig.update_traces(texttemplate="%{text:.1%}", textposition="outside", cliponaxis=False)
-        fig.update_layout(
-            title="Survival Rate by Family Size Bucket",
-            uniformtext_minsize=10,
-            uniformtext_mode="hide",
-        )
-        fig.update_xaxes(title="Family Size Bucket")
-        fig.update_yaxes(title="Survival Rate", tickformat=".0%", rangemode="tozero")
-    else:
-        fig = px.bar(
-            df.groupby("FamilyBucket").size().reset_index(name="Count"),
-            x="FamilyBucket",
-            y="Count",
-            text="Count",
-            title="Passenger Count by Family Size Bucket",
-        )
-        fig.update_traces(textposition="outside", cliponaxis=False)
-        fig.update_xaxes(title="Family Size Bucket")
-        fig.update_yaxes(title="Count", rangemode="tozero")
-
+    # Standardize the y-axis for rates (0 to 1)
+    fig.update_yaxes(range=[0, 1])
     return fig
